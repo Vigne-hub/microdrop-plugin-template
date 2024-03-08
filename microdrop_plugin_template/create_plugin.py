@@ -1,14 +1,18 @@
+import shutil
 from argparse import ArgumentParser
 import fnmatch
-import pkg_resources
 import re
 import sys
-import tempfile as tmp
+from tempfile import mkdtemp
+from pathlib import Path
 
 import git
-import path_helpers as ph
-import rename_package_files as rp
 
+# Python 3.8 compatibility for importlib.resources
+try:
+    from importlib import resources as importlib_resources
+except ImportError:
+    import importlib_resources
 
 CRE_PLUGIN_NAME = re.compile(r'^[A-Za-z_][\w_]+$')
 
@@ -36,106 +40,90 @@ def create_plugin(output_directory, overwrite=False, init_git=True):
     IOError
         If `output_directory` exists and `overwrite` is ``False``.
     '''
-    output_directory = ph.path(output_directory).realpath()
+    output_directory = Path(output_directory).resolve()
     new_name = output_directory.name
     if not CRE_PLUGIN_NAME.match(new_name):
-        raise ValueError('Invalid plugin name, "{}".  Name must be valid '
-                         'Python module name.'.format(new_name))
+        raise ValueError(f'Invalid plugin name, "{new_name}".  Name must be valid Python module name.')
 
     # TODO Load ignore list from `.templateignore`
     ignore_list = ('*.pyc __init__.py create_plugin.py init_hooks.py rename.py'
                    '*bash.exe.stackdump'.split(' '))
 
-    def collect_package_resource_files(root=''):
+    def collect_package_resource_files(root=Path('.')):
         files = []
-
-        for p_i in pkg_resources.resource_listdir('microdrop_plugin_template',
-                                                root):
-            path_i = ph.path(root).joinpath(p_i)
-            if pkg_resources.resource_isdir('microdrop_plugin_template', path_i):
-                files.extend(collect_package_resource_files(path_i))
-            elif pkg_resources.resource_exists('microdrop_plugin_template',
-                                            path_i):
-                files.append(path_i)
+        if root.is_dir():
+            for p_i in root.iterdir():
+                if p_i.is_dir():
+                    files.extend(collect_package_resource_files(p_i))
+                else:
+                    if p_i.name not in ignore_list:
+                        files.append(p_i)
         return files
 
-    if output_directory.isdir() and not overwrite:
-        raise IOError('Output directory already exists.  Use `overwrite=True` '
-                      'to overwrite.')
+    if output_directory.is_dir() and not overwrite:
+        raise IOError('Output directory already exists.  Use `overwrite=True` to overwrite.')
 
-    working_directory = ph.path(tmp.mkdtemp(prefix='create_plugin-'))
+    working_directory = Path(mkdtemp(prefix='create_plugin-'))
 
     try:
-        #  1. Get list of all files in template directory.
-        template_files = collect_package_resource_files()
-        #  2. Filter template files in *ignore* list.
-        filtered_files = [f for f in template_files
-                          if not any(fnmatch.fnmatch(f, i)
-                          for i in ignore_list)]
-        #  3. Copy filtered files to output directory.
-        for f in filtered_files:
-            resource_filename = \
-                ph.path(pkg_resources
-                        .resource_filename('microdrop_plugin_template', f))
-            target_filename = working_directory / f
-            target_filename.parent.makedirs_p()
-            resource_filename.copy(target_filename)
-        #  4. Rename `__init__.py.template` to `__init__.py`.
+        template_dir = Path(importlib_resources.files('microdrop_plugin_template').name)
+        template_files = collect_package_resource_files(template_dir)
+        for f in template_files:
+            target_filename = working_directory / f.relative_to(template_dir)
+            target_filename.parent.mkdir(parents=True, exist_ok=True)
+            target_filename.write_bytes(f.read_bytes())
+
         source_file = working_directory / '__init__.py.template'
         target_file = working_directory / '__init__.py'
-        source_file.rename(target_file)
-        #  5. Rename all occurrences of `microdrop-plugin-template` to new name.
-        #         - Do not rename contents of `on_plugin_install.py`, since it
-        #           contains an import of `microdrop_plugin_template`.
-        rp.rename_package_files(working_directory, 'microdrop-plugin-template',
-                                new_name.replace('_', '-'),
-                                exclude='*on_plugin_install.py')
+        if source_file.exists():
+            source_file.rename(target_file)
 
-        #  6. Initialize version to 0.1 (a version is required by `release.py`)
-        #         - If `git` is available, initialize plugin directory as `git`
-        #           repository, and tag contents as `v0.1`.
-        #         - Otherwise, create `RELEASE-VERSION` file containing "0.1".
-        #
-        # TODO **N.B.**, File permissions prevent Git repositories from being
-        # removed (at least on Windows).  See if this happens on Linux too and
-        # report as bug to [`GitPython`][1] developers if it does.
-        #
-        # [1]: https://github.com/gitpython-developers/GitPython
-        version_initialized = False
+        def rename_contents(directory, old_string, new_string, exclude=None):
+            exclude = exclude or []
+            for path in directory.rglob('*.py'):
+                if path.name in exclude:
+                    continue
+                content = path.read_text()
+                content = content.replace(old_string, new_string)
+                path.write_text(content)
+
+        rename_contents(working_directory, 'microdrop-plugin-template', new_name.replace('_', '-'),
+                        exclude=['on_plugin_install.py'])
+
         if init_git:
             try:
-                files = sorted(list(working_directory.walkfiles()))
                 repo = git.Repo.init(working_directory)
-                repo.index.add(files)
+                repo.git.add(A=True)
                 repo.index.commit('Initial commit')
                 tag = 'v0.1'
-                repo.git.tag('-a', tag, '-m', 'Initial release')
-                repo.git.clear_cache()
-                print 'Initialized plugin as git repo (tag={})'.format(tag)
-            except Exception, exception:
-                print >> sys.stderr, 'Error initializing git repo.'
-                print >> sys.stderr, exception
+                repo.create_tag(tag, message='Initial release')
+                print(f'Initialized plugin as git repo (tag={tag})')
+            except Exception as exception:
+                print('Error initializing git repo.', file=sys.stderr)
+                print(exception, file=sys.stderr)
             else:
                 version_initialized = True
-        if not version_initialized:
-            version_path = working_directory.joinpath('RELEASE-VERSION')
-            with version_path.open('w') as version_output:
-                version_output.write('0.1')
-            print 'Wrote version to file: RELEASE-VERSION'
 
-        #  7. Rename created plugin directory to output path.
-        if output_directory.isdir():
-            output_directory.rmtree()
+        if not version_initialized:
+            version_path = working_directory / 'RELEASE-VERSION'
+            version_path.write_text('0.1')
+            print('Wrote version to file: RELEASE-VERSION')
+
+        if output_directory.exists():
+            for item in output_directory.glob('*'):
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
         working_directory.rename(output_directory)
 
         return output_directory
-    except Exception, exception:
-        print exception
+    except Exception as exception:
+        print(exception)
         raise
     finally:
-        # Clean up working directory if necessary.
-        if working_directory.isdir():
-            working_directory.rmtree()
+        if working_directory.exists():
+            shutil.rmtree(working_directory)
 
 
 def parse_args(args=None):
@@ -151,7 +139,7 @@ def parse_args(args=None):
                         help='Force overwrite of existing directory')
     parser.add_argument('--no-git', action='store_true',
                         help='Disable git repo initialization')
-    parser.add_argument('output_directory', type=ph.path, help='Output '
+    parser.add_argument('output_directory', type=Path, help='Output '
                         'directory.  Directory name must be a valid Python '
                         'module.')
 
@@ -164,11 +152,11 @@ if __name__ == '__main__':
         output_directory = create_plugin(args.output_directory,
                                          overwrite=args.force_overwrite,
                                          init_git=not args.no_git)
-    except IOError, exception:
-        print >> sys.stderr, 'Output directory exists.  Use `-f` to overwrite'
+    except IOError as exception:
+        print('Output directory exists.  Use `-f` to overwrite', file=sys.stderr)
         raise SystemExit(-5)
-    except ValueError, exception:
-        print >> sys.stderr, exception
+    except ValueError as exception:
+        print(exception, file=sys.stderr)
         raise SystemExit(-10)
     else:
-        print 'Wrote plugin to: {}'.format(output_directory)
+        print('Wrote plugin to: {}'.format(output_directory))

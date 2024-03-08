@@ -1,10 +1,12 @@
 import sys
+from pathlib import Path
 
-from paver.easy import task, needs, path
+from paver.easy import task, needs
 from paver.setuputils import setup, install_distutils_tasks
 
-sys.path.insert(0, path('.').abspath())
+sys.path.insert(0, str(Path('.').resolve()))
 import version
+
 
 setup(name='microdrop-plugin-template',
       version=version.getVersion(),
