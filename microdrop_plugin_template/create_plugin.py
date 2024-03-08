@@ -1,12 +1,13 @@
 import shutil
 from argparse import ArgumentParser
-import fnmatch
+#import fnmatch
 import re
 import sys
 from tempfile import mkdtemp
 from pathlib import Path
 
-import GitPython as git
+# TODO: check if import git or this or from cfobel/git-helpers
+from GitPython import git
 
 # Python 3.8 compatibility for importlib.resources
 try:
@@ -17,7 +18,7 @@ except ImportError:
 CRE_PLUGIN_NAME = re.compile(r'^[A-Za-z_][\w_]+$')
 
 
-def create_plugin(output_directory, overwrite=False, init_git=True):
+def create_plugin(output_directory, overwrite=False, init_git=False):
     '''
     Parameters
     ----------
