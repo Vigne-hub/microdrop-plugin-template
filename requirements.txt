@@ -1,0 +1,4 @@
+GitPython
+microdrop-plugin-manager
+microdrop_ext_libs
+microdrop_helpers

@@ -1,0 +1,21 @@
+# source will be downloaded prior to filling in jinja templates
+# Example assumes that this folder has setup.py in it
+source:
+  path: ..
+
+package:
+  name: microdrop_plugin_template
+  version: 0.2.alpha
+
+build:
+  number: 0
+  script: python setup.py install --single-version-externally-managed --record record.txt
+
+requirements:
+  build:
+    #TODO: check if GitPython is needed
+    - python
+    - GitPython
+    - microdrop-plugin-manager
+    - microdrop_ext_libs
+    - microdrop_helpers

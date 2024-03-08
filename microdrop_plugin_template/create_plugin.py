@@ -7,7 +7,7 @@ from tempfile import mkdtemp
 from pathlib import Path
 
 # TODO: check if import git or this or from cfobel/git-helpers
-from GitPython import git
+import git
 
 # Python 3.8 compatibility for importlib.resources
 try:
