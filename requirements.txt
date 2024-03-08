@@ -1,5 +1,0 @@
-GitPython
-microdrop-plugin-manager
-path-helpers
-pip-helpers>=0.5.post8
-rename-package-files

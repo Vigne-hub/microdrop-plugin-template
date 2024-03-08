@@ -1,5 +1,0 @@
-GitPython
-numpydoc
-path-helpers
-pip-helpers>=0.5.post8
-rename-package-files

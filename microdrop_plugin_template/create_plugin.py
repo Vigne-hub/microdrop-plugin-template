@@ -6,7 +6,7 @@ import sys
 from tempfile import mkdtemp
 from pathlib import Path
 
-import git
+import GitPython as git
 
 # Python 3.8 compatibility for importlib.resources
 try:
@@ -15,7 +15,6 @@ except ImportError:
     import importlib_resources
 
 CRE_PLUGIN_NAME = re.compile(r'^[A-Za-z_][\w_]+$')
-
 
 
 def create_plugin(output_directory, overwrite=False, init_git=True):
@@ -140,8 +139,8 @@ def parse_args(args=None):
     parser.add_argument('--no-git', action='store_true',
                         help='Disable git repo initialization')
     parser.add_argument('output_directory', type=Path, help='Output '
-                        'directory.  Directory name must be a valid Python '
-                        'module.')
+                                                            'directory.  Directory name must be a valid Python '
+                                                            'module.')
 
     return parser.parse_args()
 
